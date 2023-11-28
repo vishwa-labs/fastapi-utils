@@ -1,0 +1,9 @@
+setuptools
+wheel
+pydantic
+pyyaml
+fastapi
+uvicorn[standard]
+starlette-exporter
+starlette
+pytest
