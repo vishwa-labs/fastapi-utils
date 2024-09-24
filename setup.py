@@ -5,14 +5,14 @@ REQUIRED_PACKAGES = list(filter(None, list(map(lambda s: s.strip(), open('requir
 with open("README.md", "r") as readme:
     long_description = readme.read()
 setup(
-    name='xpuls-fastapi-utils',
-    version="0.0.2",
+    name='vishwa-fastapi-utils',
+    version="0.0.3",
     author="Sai Sharan Tangeda",
     author_email="saisarantangeda@gmail.com",
     description="Base SDK for FastAPI Utils",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/xpuls-labs/fastapi-utils",
+    url="https://github.com/vishwa-labs/fastapi-utils",
     install_requires=REQUIRED_PACKAGES,
     include_package_data=True,
     packages=find_packages(),
