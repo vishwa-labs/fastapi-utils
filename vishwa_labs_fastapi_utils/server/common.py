@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from starlette.middleware.gzip import GZipMiddleware
 from starlette_exporter import PrometheusMiddleware, handle_metrics
 
-from xpuls_fastapi_utils.server.route_handlers import TelemetryAPI
+from vishwa_labs_fastapi_utils.server.route_handlers import TelemetryAPI
 
 
 def instrument_server(service_name: str, app: FastAPI):
