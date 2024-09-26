@@ -1,5 +1,5 @@
 import os
-from azure.identity import ClientSecretCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 from pathlib import Path
 
@@ -11,13 +11,25 @@ class AzureBlobServiceClient:
 
     def get_blob_service_client(self):
         """Authenticate using Service Principal and return the BlobServiceClient."""
-        credential = ClientSecretCredential(
-            tenant_id=os.getenv("AZURE_TENANT_ID"),
-            client_id=os.getenv("AZURE_CLIENT_ID"),
-            client_secret=os.getenv("AZURE_CLIENT_SECRET"))
+        tenant_id = os.getenv("AZURE_TENANT_ID")
+        client_id = os.getenv("AZURE_CLIENT_ID")
+        client_secret = os.getenv("AZURE_CLIENT_SECRET")
+        storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
 
-        blob_service_client = BlobServiceClient(account_url=os.getenv("AZURE_STORAGE_ACCOUNT_URL"),
-                                                credential=credential)
+        # Check if service principal credentials are available in the environment
+        if tenant_id and client_id and client_secret:
+            print("Using Service Principal credentials from environment variables.")
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+        else:
+            print("Service Principal credentials not found. Falling back to DefaultAzureCredential.")
+            credential = DefaultAzureCredential()
+
+        # Create BlobServiceClient using the determined credentials
+        blob_service_client = BlobServiceClient(account_url=storage_account_url, credential=credential)
 
         return blob_service_client
 
