@@ -12,3 +12,5 @@ opentelemetry-sdk
 opentelemetry-instrumentation
 opentelemetry-exporter-otlp
 opentelemetry-instrumentation-requests
+azure-identity
+azure-storage-blob
