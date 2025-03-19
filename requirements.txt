@@ -14,3 +14,4 @@ opentelemetry-exporter-otlp
 opentelemetry-instrumentation-requests
 azure-identity
 azure-storage-blob
+prometheus-client
