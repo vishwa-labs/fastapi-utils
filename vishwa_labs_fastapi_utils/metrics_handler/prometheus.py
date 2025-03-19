@@ -1,5 +1,6 @@
 import os
 from prometheus_client import (
+    REGISTRY,
     CollectorRegistry,
     Gauge,
     push_to_gateway,
@@ -9,7 +10,7 @@ from prometheus_client import (
 
 
 class MetricBuilder:
-    def __init__(self, job_name, push_gateway_url=None):
+    def __init__(self, job_name, push_gateway_url=None, use_default_registry=True):
         """
         Initialize MetricBuilder.
 
@@ -17,8 +18,10 @@ class MetricBuilder:
             job_name (str): Job name for metrics pushed to Prometheus.
             push_gateway_url (str, optional): URL of the Prometheus Push Gateway.
                 If not provided, it falls back to the environment variable PUSHGATEWAY_URL or a default.
+            use_default_registry (bool, optional): Whether to use the default Prometheus registry.
+                If False, CollectRegistry() is used.
         """
-        self.registry = CollectorRegistry()
+        self.registry = CollectorRegistry() if use_default_registry else REGISTRY
         self.metrics = {}
         self.push_gateway_url = (
             push_gateway_url or os.getenv("PUSHGATEWAY_URL", "http://localhost:9091")

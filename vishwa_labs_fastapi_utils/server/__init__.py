@@ -1,1 +1,1 @@
-from .common import instrument_server, global_metric_builder
+from .common import instrument_server, prom_metrics_manager
