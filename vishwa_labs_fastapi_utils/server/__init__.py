@@ -1,1 +1,3 @@
-from .common import instrument_server, prom_metrics_manager
+from .common import instrument_server, get_prom_metrics_manager
+
+__all__ = ["instrument_server", "get_prom_metrics_manager"]
