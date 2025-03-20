@@ -2,7 +2,6 @@ import os
 from fastapi import FastAPI
 from starlette.middleware.gzip import GZipMiddleware
 from starlette_exporter import PrometheusMiddleware, handle_metrics
-from prometheus_client import CONTENT_TYPE_LATEST
 
 from vishwa_labs_fastapi_utils.core import common
 from vishwa_labs_fastapi_utils.server.route_handlers import TelemetryAPI
@@ -10,10 +9,15 @@ from vishwa_labs_fastapi_utils.metrics_handler import MetricBuilder
 
 prom_metrics_manager = None
 
+
+def get_prom_metrics_manager() -> MetricBuilder:
+    return prom_metrics_manager
+
+
 def instrument_server(
-    service_name: str, 
-    app: FastAPI, 
-    custom_metric_builder: MetricBuilder = None, 
+    service_name: str,
+    app: FastAPI,
+    custom_metric_builder: MetricBuilder = None,
 ) -> FastAPI:
     global prom_metrics_manager
 
@@ -27,8 +31,8 @@ def instrument_server(
             "namespace": common.NAMESPACE,
             "pod": common.POD_NAME,
             "container": common.CONTAINER_NAME,
-            "node": os.getenv("KUBERNETES_NODE_NAME", "unknown_node")
-        }
+            "node": os.getenv("KUBERNETES_NODE_NAME", "unknown_node"),
+        },
     )
     app.add_route("/metrics", handle_metrics)
 

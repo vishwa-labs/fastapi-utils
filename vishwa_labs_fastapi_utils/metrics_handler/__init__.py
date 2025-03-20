@@ -1,3 +1,3 @@
-from .prometheus import MetricBuilder
+from .prometheus import MetricBuilder, MetricType
 
-__all__ = ["MetricBuilder"]
+__all__ = ["MetricBuilder", "MetricType"]
