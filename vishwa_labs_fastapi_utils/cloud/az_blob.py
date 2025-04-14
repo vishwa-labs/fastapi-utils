@@ -33,7 +33,7 @@ class AzureBlobServiceClient:
             self._credential = DefaultAzureCredential()
 
         # Create BlobServiceClient using the determined credentials
-        blob_service_client = BlobServiceClient(account_url=storage_account_url, credential=credential)
+        blob_service_client = BlobServiceClient(account_url=storage_account_url, credential=self._credential)
 
         return blob_service_client
 
