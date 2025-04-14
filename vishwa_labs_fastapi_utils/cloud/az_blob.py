@@ -3,10 +3,12 @@ from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 from pathlib import Path
 from typing import Tuple, Union, Dict, List, Optional
+from azure.storage.blob import BlobClient
 
 
 class AzureBlobServiceClient:
     def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None):
+        self._credential = None
         self._client = self.get_blob_service_client(storage_account_url)
         self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
         self._container_client = self._client.get_container_client(self._container_name)
@@ -21,14 +23,14 @@ class AzureBlobServiceClient:
         # Check if service principal credentials are available in the environment
         if tenant_id and client_id and client_secret:
             print("Using Service Principal credentials from environment variables.")
-            credential = ClientSecretCredential(
+            self._credential = ClientSecretCredential(
                 tenant_id=tenant_id,
                 client_id=client_id,
                 client_secret=client_secret
             )
         else:
             print("Service Principal credentials not found. Falling back to DefaultAzureCredential.")
-            credential = DefaultAzureCredential()
+            self._credential = DefaultAzureCredential()
 
         # Create BlobServiceClient using the determined credentials
         blob_service_client = BlobServiceClient(account_url=storage_account_url, credential=credential)
@@ -44,6 +46,22 @@ class AzureBlobServiceClient:
 
     def download_blob_to_file(self, blob_name, destination_path):
         blob_client = self._container_client.get_blob_client(blob_name)
+        self._download_blob_to_file(blob_client, destination_path)
+
+    def download_blob_from_url(self, blob_url: str, destination_path: str) -> None:
+        """
+        Download a blob using its full URL.
+    
+        :param blob_url: The full URL to the blob. This is not just the blob name; it must include the storage account 
+                         and container information, and optionally a SAS token.
+        :param destination_path: The local file path where the blob will be saved.
+        """
+        # Create the BlobClient directly from the blob URL.
+        # If the blob URL has a SAS token embedded, the credential parameter is optional.
+        # Otherwise, you can supply a credential (here we assume you can get it from the client, e.g. self._client.credential).
+        blob_client = BlobClient.from_blob_url(blob_url, credential=self._credential)
+        
+        # Call the internal helper to download the blob to the given local file path.
         self._download_blob_to_file(blob_client, destination_path)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
