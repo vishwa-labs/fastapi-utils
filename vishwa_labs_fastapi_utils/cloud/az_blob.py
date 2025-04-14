@@ -2,19 +2,20 @@ import os
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 from pathlib import Path
+from typing import Tuple, Union, Dict, List, Optional
 
 
 class AzureBlobServiceClient:
-    def __init__(self):
-        self._client = self.get_blob_service_client()
-        self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
+    def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None):
+        self._client = self.get_blob_service_client(storage_account_url)
+        self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
 
-    def get_blob_service_client(self):
+    def get_blob_service_client(self, storage_account_url: Optional[str] = None):
         """Authenticate using Service Principal and return the BlobServiceClient."""
         tenant_id = os.getenv("AZURE_TENANT_ID")
         client_id = os.getenv("AZURE_CLIENT_ID")
         client_secret = os.getenv("AZURE_CLIENT_SECRET")
-        storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+        storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL") if storage_account_url is None else storage_account_url
 
         # Check if service principal credentials are available in the environment
         if tenant_id and client_id and client_secret:
@@ -39,6 +40,9 @@ class AzureBlobServiceClient:
             blob_data = blob_client.download_blob()
             blob_data.readinto(download_file)
         print(f"Downloaded: {destination_path}")
+
+    def download_blob_to_file(self, blob_client, destination_path):
+        self._download_blob_to_file(self, blob_client, destination_path)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download the model file from Azure Blob Storage if it doesn't exist locally."""
