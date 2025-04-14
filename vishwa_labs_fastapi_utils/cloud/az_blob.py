@@ -44,7 +44,7 @@ class AzureBlobServiceClient:
 
     def download_blob_to_file(self, blob_name, destination_path):
         blob_client = self._container_client.get_blob_client(blob_name)
-        self._download_blob_to_file(self, blob_client, destination_path)
+        self._download_blob_to_file(blob_client, destination_path)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download the model file from Azure Blob Storage if it doesn't exist locally."""
