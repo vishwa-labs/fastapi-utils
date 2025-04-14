@@ -9,6 +9,7 @@ class AzureBlobServiceClient:
     def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None):
         self._client = self.get_blob_service_client(storage_account_url)
         self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
+        self._container_client = self._client.get_container_client(self._container_name)
 
     def get_blob_service_client(self, storage_account_url: Optional[str] = None):
         """Authenticate using Service Principal and return the BlobServiceClient."""
@@ -41,7 +42,8 @@ class AzureBlobServiceClient:
             blob_data.readinto(download_file)
         print(f"Downloaded: {destination_path}")
 
-    def download_blob_to_file(self, blob_client, destination_path):
+    def download_blob_to_file(self, blob_name, destination_path):
+        blob_client = self._container_client.get_blob_client(blob_name)
         self._download_blob_to_file(self, blob_client, destination_path)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
