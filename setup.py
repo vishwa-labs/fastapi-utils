@@ -6,7 +6,7 @@ with open("README.md", "r") as readme:
     long_description = readme.read()
 setup(
     name='vishwa-fastapi-utils',
-    version="0.0.16",
+    version="0.0.17",
     author="Sai Sharan Tangeda",
     author_email="saisarantangeda@gmail.com",
     description="Base SDK for FastAPI Utils",
