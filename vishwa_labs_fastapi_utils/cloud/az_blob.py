@@ -7,8 +7,14 @@ from azure.storage.blob import BlobClient
 
 
 class AzureBlobServiceClient:
-    def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None):
+    def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None,
+                 storage_account_name: Optional[str] = None):
         self._credential = None
+
+        # Build URL if only account name is provided
+        if storage_account_name and not storage_account_url:
+            storage_account_url = f"https://{storage_account_name}.blob.core.windows.net"
+
         self._client = self.get_blob_service_client(storage_account_url)
         self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
         self._container_client = self._client.get_container_client(self._container_name)
@@ -63,6 +69,13 @@ class AzureBlobServiceClient:
         
         # Call the internal helper to download the blob to the given local file path.
         self._download_blob_to_file(blob_client, destination_path)
+
+    def download_blob_to_bytes(self, blob_name: str) -> bytes:
+        """Download a blob and return its content as bytes."""
+        blob_client = self._container_client.get_blob_client(blob_name)
+        data = blob_client.download_blob().readall()
+        print(f"Downloaded blob {blob_name} to bytes (size={len(data)}).")
+        return data
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download the model file from Azure Blob Storage if it doesn't exist locally."""
