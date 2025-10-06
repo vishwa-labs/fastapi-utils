@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Tuple, Union, Dict, List, Optional, IO
 from azure.storage.blob import BlobClient
 
+from vishwa_labs_fastapi_utils.cloud.storage_base import StorageClientBase
 
-class AzureBlobServiceClient:
+
+class AzureBlobServiceClient(StorageClientBase):
     def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None,
                  storage_account_name: Optional[str] = None):
         self._credential = None
@@ -158,3 +160,12 @@ class AzureBlobServiceClient:
         blob_client = self._container_client.get_blob_client(blob_name)
         blob_client.start_copy_from_url(source_url)
         print(f"Started copy from {source_url} to {blob_name}")
+    # ----------------------------------------------------------------------
+    # Cleanup
+    # ----------------------------------------------------------------------
+
+    def close(self):
+        if self._client:
+            self._client.close()
+        if self._credential:
+            self._credential.close()
