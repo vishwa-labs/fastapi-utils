@@ -55,6 +55,12 @@ class GCPStorageClient(StorageClientBase):
             return f"https://storage.googleapis.com/{self._bucket_name}/{blob_name}"
         return f"gs://{self._bucket_name}/{blob_name}"
 
+    def _resolve_blob_name(self, blob_name_or_url: str) -> str:
+        if "storage.googleapis.com" in blob_name_or_url:
+            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
+        if blob_name_or_url.startswith("gs://"):
+            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
+        return blob_name_or_url
     # ----------------------------------------------------------------------
     # Download Methods
     # ----------------------------------------------------------------------
@@ -83,6 +89,15 @@ class GCPStorageClient(StorageClientBase):
         data = blob.download_as_bytes()
         print(f"Downloaded blob {blob_name} ({len(data)} bytes).")
         return data
+
+    def download_blob_as_text(self, blob_name_or_url: str, encoding: str = "utf-8") -> str:
+        """
+        Download blob as text (supports blob name or full HTTPS/gs:// URL).
+        """
+        blob_name = self._resolve_blob_name(blob_name_or_url)
+        blob = self._bucket.blob(blob_name)
+        data = blob.download_as_bytes()
+        return self._bytes_to_text(data, encoding)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download all files under a remote prefix if local folder doesn’t exist."""

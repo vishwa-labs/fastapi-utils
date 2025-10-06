@@ -55,6 +55,12 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
             return f"https://storage.googleapis.com/{self._bucket_name}/{blob_name}"
         return f"gs://{self._bucket_name}/{blob_name}"
 
+    def _resolve_blob_name(self, blob_name_or_url: str) -> str:
+        if "storage.googleapis.com" in blob_name_or_url:
+            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
+        if blob_name_or_url.startswith("gs://"):
+            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
+        return blob_name_or_url
     # ───────────────────────── Upload Methods ───────────────────────── #
 
     async def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> str:
@@ -116,6 +122,15 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
         blob = self.bucket.blob(blob_name)
         return blob.download_as_bytes()
 
+    async def download_blob_as_text(self, blob_name_or_url: str, encoding: str = "utf-8") -> str:
+        """
+        Async version — download blob and return its text content.
+        """
+        blob_name = self._resolve_blob_name(blob_name_or_url)
+        blob = self.bucket.blob(blob_name)
+        data = blob.download_as_bytes()
+        return self._bytes_to_text(data, encoding)
+
     async def download_blob_from_url(self, blob_url: str, destination_path: str) -> None:
         """Download directly via HTTPS URL asynchronously."""
         Path(destination_path).parent.mkdir(parents=True, exist_ok=True)
@@ -149,12 +164,3 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
     async def close(self):
         # GCP client is stateless; nothing to close
         pass
-
-    # ───────────────────────── Helpers ───────────────────────── #
-
-    def _resolve_blob_name(self, blob_name_or_url: str) -> str:
-        if "storage.googleapis.com" in blob_name_or_url:
-            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
-        if blob_name_or_url.startswith("gs://"):
-            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
-        return blob_name_or_url

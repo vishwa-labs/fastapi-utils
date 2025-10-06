@@ -45,6 +45,13 @@ class AzureBlobServiceClient(StorageClientBase):
 
         return blob_service_client
 
+    # ──────────────────────────── Helper ────────────────────────────
+    def _get_blob_client(self, blob_name_or_url: str) -> BlobClient:
+        """Return a BlobClient for either blob name or full HTTPS URL."""
+        if blob_name_or_url.startswith("http"):
+            return BlobClient.from_blob_url(blob_name_or_url, credential=self._credential)
+        return self._container_client.get_blob_client(blob_name_or_url)
+
     def _download_blob_to_file(self, blob_client, destination_path):
         """Download a single blob to a specified file path."""
         with open(destination_path, "wb") as download_file:
@@ -52,32 +59,24 @@ class AzureBlobServiceClient(StorageClientBase):
             blob_data.readinto(download_file)
         print(f"Downloaded: {destination_path}")
 
-    def download_blob_to_file(self, blob_name, destination_path):
-        blob_client = self._container_client.get_blob_client(blob_name)
+    def download_blob_to_file(self, blob_name_or_url, destination_path):
+        blob_client = self._get_blob_client(blob_name_or_url)
         self._download_blob_to_file(blob_client, destination_path)
 
     def download_blob_from_url(self, blob_url: str, destination_path: str) -> None:
-        """
-        Download a blob using its full URL.
-    
-        :param blob_url: The full URL to the blob. This is not just the blob name; it must include the storage account 
-                         and container information, and optionally a SAS token.
-        :param destination_path: The local file path where the blob will be saved.
-        """
-        # Create the BlobClient directly from the blob URL.
-        # If the blob URL has a SAS token embedded, the credential parameter is optional.
-        # Otherwise, you can supply a credential (here we assume you can get it from the client, e.g. self._client.credential).
-        blob_client = BlobClient.from_blob_url(blob_url, credential=self._credential)
-        
-        # Call the internal helper to download the blob to the given local file path.
-        self._download_blob_to_file(blob_client, destination_path)
+        """Download blob using HTTPS URL (kept for backward compatibility)."""
+        self.download_blob_to_file(blob_url, destination_path)
 
-    def download_blob_to_bytes(self, blob_name: str) -> bytes:
-        """Download a blob and return its content as bytes."""
-        blob_client = self._container_client.get_blob_client(blob_name)
+    def download_blob_to_bytes(self, blob_name_or_url: str) -> bytes:
+        blob_client = self._get_blob_client(blob_name_or_url)
         data = blob_client.download_blob().readall()
-        print(f"Downloaded blob {blob_name} to bytes (size={len(data)}).")
+        print(f"Downloaded blob {blob_name_or_url} to bytes (size={len(data)}).")
         return data
+
+    def download_blob_as_text(self, blob_name_or_url: str, encoding: str = "utf-8") -> str:
+        blob_client = self._get_blob_client(blob_name_or_url)
+        data = blob_client.download_blob().readall()
+        return self._bytes_to_text(data, encoding)
 
     def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download the model file from Azure Blob Storage if it doesn't exist locally."""

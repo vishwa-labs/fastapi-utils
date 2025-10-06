@@ -5,6 +5,8 @@ from typing import Union, Optional, IO
 
 class StorageClientBase(ABC):
     """Synchronous base interface for all storage clients (Azure, GCP, AWS, etc.)"""
+    def _bytes_to_text(self, data: bytes, encoding: str = "utf-8") -> str:
+        return data.decode(encoding)
 
     # ───────────────────────────────
     # Setup / Initialization
@@ -62,6 +64,8 @@ class StorageClientBase(ABC):
 
 class AsyncStorageClientBase(ABC):
     """Asynchronous base interface for all async storage clients (Azure, GCP, etc.)"""
+    def _bytes_to_text(self, data: bytes, encoding: str = "utf-8") -> str:
+        return data.decode(encoding)
 
     # ───────────────────────────────
     # Upload

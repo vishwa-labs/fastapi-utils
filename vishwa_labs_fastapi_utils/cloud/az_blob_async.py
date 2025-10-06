@@ -11,38 +11,51 @@ from vishwa_labs_fastapi_utils.cloud.storage_base import AsyncStorageClientBase
 class AzureBlobServiceClientAsync(AsyncStorageClientBase):
     def __init__(self, container_name: Optional[str] = None, storage_account_url: Optional[str] = None,
                  storage_account_name: Optional[str] = None):
+        super().__init__()
         self._credential = None
-        self._client = None
-        self._container_client = None
 
         # Build URL if only account name is provided
         if storage_account_name and not storage_account_url:
             storage_account_url = f"https://{storage_account_name}.blob.core.windows.net"
 
-        self._storage_account_url = storage_account_url or os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+        self._client = self.get_blob_service_client_async(storage_account_url)
         self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
+        self._container_client = self._client.get_container_client(self._container_name)
 
-    async def get_blob_service_client(self):
-        """Authenticate using Service Principal and return an async BlobServiceClient."""
+    # ─────────────────────────── Auth & Client ───────────────────────────
+    def get_blob_service_client_async(self, storage_account_url: Optional[str] = None):
         tenant_id = os.getenv("AZURE_TENANT_ID")
         client_id = os.getenv("AZURE_CLIENT_ID")
         client_secret = os.getenv("AZURE_CLIENT_SECRET")
+        storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL") or storage_account_url
 
         if tenant_id and client_id and client_secret:
-            print("Using Service Principal credentials from environment variables.")
+            print("Using Service Principal credentials (async).")
             self._credential = ClientSecretCredential(
                 tenant_id=tenant_id,
                 client_id=client_id,
                 client_secret=client_secret
             )
         else:
-            print("Service Principal credentials not found. Falling back to DefaultAzureCredential.")
+            print("Falling back to DefaultAzureCredential (async).")
             self._credential = DefaultAzureCredential()
 
-        # Create BlobServiceClient
-        self._client = BlobServiceClient(account_url=self._storage_account_url, credential=self._credential)
-        self._container_client = self._client.get_container_client(self._container_name)
-        return self._client
+        return BlobServiceClient(account_url=storage_account_url, credential=self._credential)
+
+    # ─────────────────────────── Helper ───────────────────────────
+    def _get_blob_client(self, blob_name_or_url: str) -> BlobClient:
+        """Return BlobClient for blob name or HTTPS URL."""
+        if blob_name_or_url.startswith("http"):
+            return BlobClient.from_blob_url(blob_name_or_url, credential=self._credential)
+        return self._container_client.get_blob_client(blob_name_or_url)
+
+    async def _aio_write_file(self, destination_path: str, data: bytes):
+        """Small helper to write asynchronously to a file."""
+        import aiofiles
+        async with aiofiles.open(destination_path, "wb") as f:
+            await f.write(data)
+            await f.flush()
+        return destination_path
 
     async def _download_blob_to_file(self, blob_client: BlobClient, destination_path: str):
         """Download a single blob to a specified file path asynchronously."""
@@ -52,22 +65,34 @@ class AzureBlobServiceClientAsync(AsyncStorageClientBase):
             await f.write(data)
         print(f"Downloaded: {destination_path}")
 
-    async def download_blob_to_file(self, blob_name: str, destination_path: str):
-        blob_client = self._container_client.get_blob_client(blob_name)
-        await self._download_blob_to_file(blob_client, destination_path)
+    async def download_blob_to_file(self, blob_name_or_url: str, destination_path: Union[str, Path]):
+        """Download blob (by name or URL) to local file."""
+        blob_client = self._get_blob_client(blob_name_or_url)
+        Path(destination_path).parent.mkdir(parents=True, exist_ok=True)
+        async with blob_client:
+            stream = await blob_client.download_blob()
+            data = await stream.readall()
+        async with await self._aio_write_file(destination_path, data):
+            pass
+        print(f"Downloaded: {blob_name_or_url} -> {destination_path}")
 
-    async def download_blob_from_url(self, blob_url: str, destination_path: str) -> None:
-        """Download a blob using its full URL."""
-        blob_client = BlobClient.from_blob_url(blob_url, credential=self._credential)
-        await self._download_blob_to_file(blob_client, destination_path)
-
-    async def download_blob_to_bytes(self, blob_name: str) -> bytes:
-        """Download a blob and return its content as bytes."""
-        blob_client = self._container_client.get_blob_client(blob_name)
-        stream = await blob_client.download_blob()
-        data = await stream.readall()
-        print(f"Downloaded blob {blob_name} to bytes (size={len(data)}).")
+    async def download_blob_to_bytes(self, blob_name_or_url: str) -> bytes:
+        """Download blob (by name or URL) to bytes."""
+        blob_client = self._get_blob_client(blob_name_or_url)
+        async with blob_client:
+            stream = await blob_client.download_blob()
+            data = await stream.readall()
+        print(f"Downloaded blob {blob_name_or_url} (size={len(data)}).")
         return data
+
+    async def download_blob_as_text(self, blob_name_or_url: str, encoding: str = "utf-8") -> str:
+        """Download blob (by name or URL) and return decoded text."""
+        data = await self.download_blob_to_bytes(blob_name_or_url)
+        return self._bytes_to_text(data, encoding)
+
+    async def download_blob_from_url(self, blob_url: str, destination_path: str):
+        """Backward-compatible URL downloader."""
+        await self.download_blob_to_file(blob_url, destination_path)
 
     async def download_folder_if_not_exists(self, destination_path: str, remote_folder_path: str) -> None:
         """Download all blobs from a folder if not already downloaded."""
