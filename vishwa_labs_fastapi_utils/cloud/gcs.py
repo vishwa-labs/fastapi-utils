@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional, Union, IO
+from typing import Optional, Union, IO, List
 
 import requests
 from google.cloud import storage
@@ -20,12 +20,18 @@ class GCPStorageClient(StorageClientBase):
     """
 
     def __init__(self,
-                 bucket_name: Optional[str] = None,
+                 storage_account_name: Optional[str] = None,
+                 container_name: Optional[str] = None,
                  return_https_url: Optional[bool] = None):
         self._client = self._get_storage_client()
-        self._bucket_name = bucket_name or os.getenv("GCP_STORAGE_BUCKET_NAME")
+        self._bucket_name = storage_account_name or os.getenv("GCP_STORAGE_BUCKET_NAME")
         if not self._bucket_name:
             raise ValueError("Bucket name is required (set GCP_STORAGE_BUCKET_NAME or pass explicitly).")
+
+        # Treat container as a path prefix inside the bucket
+        self._container_prefix = container_name or os.getenv("GCP_STORAGE_CONTAINER_NAME", "")
+        if self._container_prefix and not self._container_prefix.endswith("/"):
+            self._container_prefix += "/"
 
         # URL flipper
         env_mode = os.getenv("STORAGE_URL_MODE", "https").lower()
@@ -49,11 +55,16 @@ class GCPStorageClient(StorageClientBase):
     # ----------------------------------------------------------------------
     # URL Formatting
     # ----------------------------------------------------------------------
+    def _prefixed_blob_name(self, blob_name: str) -> str:
+        """Add container prefix (folder path) if defined."""
+        return f"{self._container_prefix}{blob_name}" if self._container_prefix else blob_name
+
     def _format_url(self, blob_name: str) -> str:
         """Return GCS URL depending on configured mode."""
+        full_name = self._prefixed_blob_name(blob_name)
         if self._return_https_url:
-            return f"https://storage.googleapis.com/{self._bucket_name}/{blob_name}"
-        return f"gs://{self._bucket_name}/{blob_name}"
+            return f"https://storage.googleapis.com/{self._bucket_name}/{full_name}"
+        return f"gs://{self._bucket_name}/{full_name}"
 
     def _resolve_blob_name(self, blob_name_or_url: str) -> str:
         if "storage.googleapis.com" in blob_name_or_url:
@@ -121,49 +132,60 @@ class GCPStorageClient(StorageClientBase):
     def upload_file(self, local_file_path: Union[str, Path], blob_name: Optional[str] = None,
                     overwrite: bool = True) -> str:
         local_file_path = Path(local_file_path)
-        blob_name = blob_name or local_file_path.name
+        blob_name = self._prefixed_blob_name(blob_name or local_file_path.name)
+
         blob = self._bucket.blob(blob_name)
 
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
 
         blob.upload_from_filename(str(local_file_path))
-        print(f"Uploaded: {local_file_path} -> {self._format_url(blob_name)}")
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Uploaded: {local_file_path} -> {url}")
+        return url
 
     def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> str:
+        blob_name = self._prefixed_blob_name(blob_name)
         blob = self._bucket.blob(blob_name)
 
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
 
         blob.upload_from_string(data)
-        print(f"Uploaded bytes to: {self._format_url(blob_name)}")
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Uploaded bytes to: {url}")
+        return url
 
     def upload_stream(self, stream: IO, blob_name: str, overwrite: bool = True) -> str:
+        blob_name = self._prefixed_blob_name(blob_name)
         blob = self._bucket.blob(blob_name)
 
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
 
         blob.upload_from_file(stream)
-        print(f"Uploaded stream to: {self._format_url(blob_name)}")
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Uploaded stream to: {url}")
+        return url
 
     def upload_folder(self, local_folder_path: Union[str, Path],
                       remote_folder_path: Optional[str] = None,
-                      overwrite: bool = True) -> None:
-        local_folder_path = Path(local_folder_path)
-        remote_folder_path = remote_folder_path or local_folder_path.name
+                      overwrite: bool = True) -> List[str]:
+        local_folder = Path(local_folder_path)
+        remote_folder_path = self._prefixed_blob_name(remote_folder_path or local_folder.name)
 
+        uploaded_urls = []
         for file_path in local_folder_path.rglob("*"):
             if file_path.is_file():
                 blob_name = str(Path(remote_folder_path) / file_path.relative_to(local_folder_path))
-                self.upload_file(file_path, blob_name=blob_name, overwrite=overwrite)
+                uploaded_urls.append(self.upload_file(file_path, blob_name=blob_name, overwrite=overwrite))
+
+        print(f"Uploaded folder {local_folder_path} -> remote path {remote_folder_path}")
+        return uploaded_urls
 
     def upload_from_url(self, source_url: str, blob_name: str, overwrite: bool = True) -> str:
         """Upload by fetching content from an external URL (client-side)."""
+        blob_name = self._prefixed_blob_name(blob_name)
         blob = self._bucket.blob(blob_name)
 
         if not overwrite and blob.exists():
@@ -172,5 +194,6 @@ class GCPStorageClient(StorageClientBase):
         resp = requests.get(source_url)
         resp.raise_for_status()
         blob.upload_from_string(resp.content)
-        print(f"Copied from {source_url} -> {self._format_url(blob_name)}")
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Copied from {source_url} -> {url}")
+        return url

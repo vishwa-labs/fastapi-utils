@@ -2,7 +2,7 @@ import os
 import aiofiles
 import aiohttp
 from pathlib import Path
-from typing import Optional, Union, IO
+from typing import Optional, Union, IO, List
 
 from google.cloud import storage
 from google.auth.transport.requests import Request
@@ -22,13 +22,19 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
     """
 
     def __init__(self,
-                 bucket_name: Optional[str] = None,
+                 storage_account_name: Optional[str] = None,
+                 container_name: Optional[str] = None,
                  return_https_url: Optional[bool] = None):
         super().__init__()
         self.client = self._get_client()
-        self._bucket_name = bucket_name or os.getenv("GCP_STORAGE_BUCKET_NAME")
+        self._bucket_name = storage_account_name or os.getenv("GCP_STORAGE_BUCKET_NAME")
         if not self._bucket_name:
             raise ValueError("Bucket name is required (set GCP_STORAGE_BUCKET_NAME or pass explicitly).")
+
+        # Treat container as a path prefix inside the bucket
+        self._container_prefix = container_name or os.getenv("GCP_STORAGE_CONTAINER_NAME", "")
+        if self._container_prefix and not self._container_prefix.endswith("/"):
+            self._container_prefix += "/"
 
         env_mode = os.getenv("STORAGE_URL_MODE", "https").lower()
         self._return_https_url = return_https_url if return_https_url is not None else (env_mode == "https")
@@ -49,11 +55,9 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
     # ----------------------------------------------------------------------
     # URL Formatting
     # ----------------------------------------------------------------------
-    def _format_url(self, blob_name: str) -> str:
-        """Return GCS URL depending on configured mode."""
-        if self._return_https_url:
-            return f"https://storage.googleapis.com/{self._bucket_name}/{blob_name}"
-        return f"gs://{self._bucket_name}/{blob_name}"
+    def _prefixed_blob_name(self, blob_name: str) -> str:
+        """Add container prefix (folder path) if defined."""
+        return f"{self._container_prefix}{blob_name}" if self._container_prefix else blob_name
 
     def _resolve_blob_name(self, blob_name_or_url: str) -> str:
         if "storage.googleapis.com" in blob_name_or_url:
@@ -61,44 +65,65 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
         if blob_name_or_url.startswith("gs://"):
             return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
         return blob_name_or_url
-    # ───────────────────────── Upload Methods ───────────────────────── #
 
-    async def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> str:
-        blob = self.bucket.blob(blob_name)
-        if not overwrite and blob.exists():
-            raise FileExistsError(f"Blob {blob_name} already exists.")
-        blob.upload_from_string(data)
-        return self._format_url(blob_name)
+    def _format_url(self, blob_name: str) -> str:
+        """Return GCS URL depending on configured mode."""
+        full_name = self._prefixed_blob_name(blob_name)
+        if self._return_https_url:
+            return f"https://storage.googleapis.com/{self._bucket_name}/{full_name}"
+        return f"gs://{self._bucket_name}/{full_name}"
+    # ───────────────────────── Upload Methods ───────────────────────── #
 
     async def upload_file(self, local_file_path: Union[str, Path], blob_name: Optional[str] = None,
                           overwrite: bool = True) -> str:
         local_file_path = Path(local_file_path)
-        blob_name = blob_name or local_file_path.name
+        blob_name = self._prefixed_blob_name(blob_name or local_file_path.name)
         blob = self.bucket.blob(blob_name)
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
         blob.upload_from_filename(str(local_file_path))
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Uploaded: {local_file_path} -> {url}")
+        return url
+
+    async def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> str:
+        blob_name = self._prefixed_blob_name(blob_name)
+        blob = self.bucket.blob(blob_name)
+        if not overwrite and blob.exists():
+            raise FileExistsError(f"Blob {blob_name} already exists.")
+        blob.upload_from_string(data)
+        url = self._format_url(blob_name)
+        print(f"Uploaded bytes to: {url}")
+        return url
 
     async def upload_stream(self, stream: IO, blob_name: str, overwrite: bool = True) -> str:
+        blob_name = self._prefixed_blob_name(blob_name)
         blob = self.bucket.blob(blob_name)
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
         blob.upload_from_file(stream)
-        return self._format_url(blob_name)
+        url = self._format_url(blob_name)
+        print(f"Uploaded stream to: {url}")
+        return url
 
     async def upload_folder(self, local_folder_path: Union[str, Path],
                             remote_folder_path: Optional[str] = None,
-                            overwrite: bool = True):
+                            overwrite: bool = True) -> List[str]:
         local_folder = Path(local_folder_path)
-        remote_folder = remote_folder_path or local_folder.name
-        for file_path in local_folder.rglob("*"):
+        remote_folder_path = self._prefixed_blob_name(remote_folder_path or local_folder.name)
+
+        uploaded_urls = []
+        for file_path in local_folder_path.rglob("*"):
             if file_path.is_file():
-                blob_name = str(Path(remote_folder) / file_path.relative_to(local_folder))
-                await self.upload_file(file_path, blob_name, overwrite)
+                blob_name = str(Path(remote_folder_path) / file_path.relative_to(local_folder_path))
+                uploaded_urls.append(await self.upload_file(file_path, blob_name, overwrite))
+
+        print(f"Uploaded folder {local_folder_path} -> remote path {remote_folder_path}")
+        return uploaded_urls
 
     async def upload_from_url(self, source_url: str, blob_name: str, overwrite: bool = True) -> str:
         """Client-side copy from a public URL using aiohttp."""
+        blob_name = self._prefixed_blob_name(blob_name)
         blob = self.bucket.blob(blob_name)
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
@@ -107,8 +132,9 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
                 resp.raise_for_status()
                 content = await resp.read()
                 blob.upload_from_string(content)
-        return self._format_url(blob_name)
-
+        url = self._format_url(blob_name)
+        print(f"Copied from {source_url} -> {url}")
+        return url
     # ───────────────────────── Download Methods ───────────────────────── #
 
     async def download_blob_to_file(self, blob_name_or_url: str, destination_path: Union[str, Path]) -> None:

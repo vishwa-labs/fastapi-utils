@@ -3,7 +3,7 @@ import aiofiles
 from azure.identity.aio import DefaultAzureCredential, ClientSecretCredential
 from azure.storage.blob.aio import BlobServiceClient, BlobClient
 from pathlib import Path
-from typing import Union, Optional, IO
+from typing import Union, Optional, IO, List
 
 from vishwa_labs_fastapi_utils.cloud.storage_base import AsyncStorageClientBase
 
@@ -18,6 +18,24 @@ class AzureBlobServiceClientAsync(AsyncStorageClientBase):
         if storage_account_name and not storage_account_url:
             storage_account_url = f"https://{storage_account_name}.blob.core.windows.net"
 
+        # Prefer explicit param, then env
+        storage_account_url = storage_account_url or os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+        storage_account_name = storage_account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+
+        # Extract name from URL if still not available
+        if not storage_account_name and storage_account_url:
+            try:
+                storage_account_name = storage_account_url.split("//")[1].split(".")[0]
+            except Exception:
+                storage_account_name = None
+
+        if not storage_account_url:
+            raise ValueError("Storage account URL is required (pass explicitly or set AZURE_STORAGE_ACCOUNT_URL).")
+
+        if not storage_account_name:
+            raise ValueError("Could not determine storage account name from URL or env.")
+
+        self._account_name = storage_account_name
         self._client = self.get_blob_service_client_async(storage_account_url)
         self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME") if container_name is None else container_name
         self._container_client = self._client.get_container_client(self._container_name)
@@ -43,6 +61,15 @@ class AzureBlobServiceClientAsync(AsyncStorageClientBase):
         return BlobServiceClient(account_url=storage_account_url, credential=self._credential)
 
     # ─────────────────────────── Helper ───────────────────────────
+    def _format_url(self, blob_name: str) -> str:
+        """Build a fully qualified HTTPS blob URL."""
+        return f"https://{self._account_name}.blob.core.windows.net/{self._container_name}/{blob_name}"
+
+    def _log_upload(self, blob_name: str) -> str:
+        url = self._format_url(blob_name)
+        print(f"Uploaded blob available at: {url}")
+        return url
+
     def _get_blob_client(self, blob_name_or_url: str) -> BlobClient:
         """Return BlobClient for blob name or HTTPS URL."""
         if blob_name_or_url.startswith("http"):
@@ -117,52 +144,54 @@ class AzureBlobServiceClientAsync(AsyncStorageClientBase):
     # ----------------------------------------------------------------------
 
     async def _upload_blob_from_file(self, blob_client: BlobClient, local_file_path: Union[str, Path],
-                                     overwrite: bool = True):
+                                     overwrite: bool = True) -> str:
         """Internal helper to upload a file to blob asynchronously."""
         async with aiofiles.open(local_file_path, "rb") as f:
             data = await f.read()
         await blob_client.upload_blob(data, overwrite=overwrite)
-        print(f"Uploaded: {local_file_path} -> {blob_client.blob_name}")
+        return self._log_upload(blob_client.blob_name)
 
     async def upload_file(self, local_file_path: Union[str, Path], blob_name: Optional[str] = None,
-                          overwrite: bool = True) -> None:
+                          overwrite: bool = True) -> str:
         """Upload a single local file to blob storage."""
         local_file_path = Path(local_file_path)
         blob_name = blob_name or local_file_path.name
         blob_client = self._container_client.get_blob_client(blob_name)
-        await self._upload_blob_from_file(blob_client, local_file_path, overwrite)
+        return await self._upload_blob_from_file(blob_client, local_file_path, overwrite)
 
-    async def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> None:
+    async def upload_bytes(self, data: bytes, blob_name: str, overwrite: bool = True) -> str:
         """Upload raw bytes as a blob."""
         blob_client = self._container_client.get_blob_client(blob_name)
         await blob_client.upload_blob(data, overwrite=overwrite)
-        print(f"Uploaded bytes to blob: {blob_name}")
+        return self._log_upload(blob_name)
 
-    async def upload_stream(self, stream: IO, blob_name: str, overwrite: bool = True) -> None:
+    async def upload_stream(self, stream: IO, blob_name: str, overwrite: bool = True) -> str:
         """Upload from a file-like stream (e.g., BytesIO)."""
         blob_client = self._container_client.get_blob_client(blob_name)
         await blob_client.upload_blob(stream, overwrite=overwrite)
-        print(f"Uploaded stream to blob: {blob_name}")
+        return self._log_upload(blob_name)
 
     async def upload_folder(self, local_folder_path: Union[str, Path], remote_folder_path: Optional[str] = None,
-                            overwrite: bool = True) -> None:
+                            overwrite: bool = True) -> List[str]:
         """Upload all files in a local folder recursively."""
         local_folder_path = Path(local_folder_path)
         remote_folder_path = remote_folder_path or local_folder_path.name
 
+        uploaded_urls = []
         for file_path in local_folder_path.rglob("*"):
             if file_path.is_file():
                 blob_name = str(Path(remote_folder_path) / file_path.relative_to(local_folder_path))
                 blob_client = self._container_client.get_blob_client(blob_name)
-                await self._upload_blob_from_file(blob_client, file_path, overwrite)
+                uploaded_urls.append(await self._upload_blob_from_file(blob_client, file_path, overwrite))
 
         print(f"Uploaded folder {local_folder_path} -> remote path {remote_folder_path}")
+        return uploaded_urls
 
-    async def upload_from_url(self, source_url: str, blob_name: str, overwrite: bool = True) -> None:
+    async def upload_from_url(self, source_url: str, blob_name: str, overwrite: bool = True) -> str:
         """Upload a blob by copying directly from a source URL (server-side)."""
         blob_client = self._container_client.get_blob_client(blob_name)
         await blob_client.start_copy_from_url(source_url)
-        print(f"Started copy from {source_url} to {blob_name}")
+        return self._log_upload(blob_name)
 
     # ----------------------------------------------------------------------
     # Cleanup
