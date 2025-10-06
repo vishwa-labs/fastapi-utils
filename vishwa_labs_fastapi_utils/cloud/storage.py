@@ -44,10 +44,16 @@ def get_reader_client_from_url(url: str):
 
     if provider == "azure":
         from .az_blob import AzureBlobServiceClient
-        return AzureBlobServiceClient(container_name=info["container"])
+        return AzureBlobServiceClient(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
     elif provider == "gcp":
         from .gcs import GCPStorageClient
-        return GCPStorageClient(bucket_name=info["container"])
+        return GCPStorageClient(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
     else:
         raise ValueError(f"Cannot detect valid cloud provider for URL: {url}")
 
@@ -59,9 +65,15 @@ async def get_reader_client_from_url_async(url: str):
 
     if provider == "azure":
         from .az_blob_async import AzureBlobServiceClientAsync
-        return AzureBlobServiceClientAsync(container_name=info["container"])
+        return AzureBlobServiceClientAsync(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
     elif provider == "gcp":
         from .gcs_async import GCPStorageClientAsync
-        return GCPStorageClientAsync(bucket_name=info["container"])
+        return GCPStorageClientAsync(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
     else:
         raise ValueError(f"Cannot detect valid cloud provider for URL: {url}")
