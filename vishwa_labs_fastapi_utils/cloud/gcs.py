@@ -56,8 +56,26 @@ class GCPStorageClient(StorageClientBase):
     # URL Formatting
     # ----------------------------------------------------------------------
     def _prefixed_blob_name(self, blob_name: str) -> str:
-        """Add container prefix (folder path) if defined."""
+        """
+        Add container prefix (folder path) if defined,
+        unless blob_name is already a full GCS URL.
+        """
+        # Skip prefixing for full URLs
+        if "storage.googleapis.com" in blob_name or blob_name.startswith("gs://"):
+            return self._resolve_blob_name(blob_name)
         return f"{self._container_prefix}{blob_name}" if self._container_prefix else blob_name
+
+    def _resolve_blob_name(self, blob_name_or_url: str) -> str:
+        """
+        Extract blob name from a full HTTPS or gs:// URL.
+        """
+        # Handle full https://storage.googleapis.com/{bucket}/{object}
+        if "storage.googleapis.com" in blob_name_or_url:
+            return blob_name_or_url.split(f"{self._bucket_name}/", 1)[-1]
+        # Handle gs:// URLs
+        if blob_name_or_url.startswith("gs://"):
+            return blob_name_or_url.split(f"{self._bucket_name}/", 1)[-1]
+        return blob_name_or_url
 
     def _format_url(self, blob_name: str) -> str:
         """Return GCS URL depending on configured mode."""
@@ -66,16 +84,11 @@ class GCPStorageClient(StorageClientBase):
             return f"https://storage.googleapis.com/{self._bucket_name}/{full_name}"
         return f"gs://{self._bucket_name}/{full_name}"
 
-    def _resolve_blob_name(self, blob_name_or_url: str) -> str:
-        if "storage.googleapis.com" in blob_name_or_url:
-            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
-        if blob_name_or_url.startswith("gs://"):
-            return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
-        return blob_name_or_url
     # ----------------------------------------------------------------------
     # Download Methods
     # ----------------------------------------------------------------------
-    def download_blob_to_file(self, blob_name: str, destination_path: Union[str, Path]) -> None:
+    def download_blob_to_file(self, blob_name_or_url: str, destination_path: Union[str, Path]) -> None:
+        blob_name = self._resolve_blob_name(blob_name_or_url)
         blob = self._bucket.blob(blob_name)
         Path(destination_path).parent.mkdir(parents=True, exist_ok=True)
         blob.download_to_filename(str(destination_path))
@@ -95,7 +108,8 @@ class GCPStorageClient(StorageClientBase):
         blob.download_to_filename(destination_path)
         print(f"Downloaded from {blob_url} -> {destination_path}")
 
-    def download_blob_to_bytes(self, blob_name: str) -> bytes:
+    def download_blob_to_bytes(self, blob_name_or_url: str) -> bytes:
+        blob_name = self._resolve_blob_name(blob_name_or_url)
         blob = self._bucket.blob(blob_name)
         data = blob.download_as_bytes()
         print(f"Downloaded blob {blob_name} ({len(data)} bytes).")
