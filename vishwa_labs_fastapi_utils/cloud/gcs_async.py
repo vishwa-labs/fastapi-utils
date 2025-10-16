@@ -56,7 +56,13 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
     # URL Formatting
     # ----------------------------------------------------------------------
     def _prefixed_blob_name(self, blob_name: str) -> str:
-        """Add container prefix (folder path) if defined."""
+        """
+        Add container prefix (folder path) if defined,
+        unless blob_name is already a full GCS URL.
+        """
+        # Skip prefixing for full URLs
+        if "storage.googleapis.com" in blob_name or blob_name.startswith("gs://"):
+            return self._resolve_blob_name(blob_name)
         return f"{self._container_prefix}{blob_name}" if self._container_prefix else blob_name
 
     def _resolve_blob_name(self, blob_name_or_url: str) -> str:
@@ -66,12 +72,13 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
             return blob_name_or_url.split(f"{self._bucket_name}/")[-1]
         return blob_name_or_url
 
-    def _format_url(self, blob_name: str) -> str:
+    def _format_url(self, blob_name: str, already_prefixed: bool = False) -> str:
         """Return GCS URL depending on configured mode."""
-        full_name = self._prefixed_blob_name(blob_name)
+        full_name = blob_name if already_prefixed else self._prefixed_blob_name(blob_name)
         if self._return_https_url:
             return f"https://storage.googleapis.com/{self._bucket_name}/{full_name}"
         return f"gs://{self._bucket_name}/{full_name}"
+
     # ───────────────────────── Upload Methods ───────────────────────── #
 
     async def upload_file(self, local_file_path: Union[str, Path], blob_name: Optional[str] = None,
@@ -82,7 +89,7 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
         blob.upload_from_filename(str(local_file_path))
-        url = self._format_url(blob_name)
+        url = self._format_url(blob_name, already_prefixed=True)
         print(f"Uploaded: {local_file_path} -> {url}")
         return url
 
@@ -92,7 +99,7 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
         blob.upload_from_string(data)
-        url = self._format_url(blob_name)
+        url = self._format_url(blob_name, already_prefixed=True)
         print(f"Uploaded bytes to: {url}")
         return url
 
@@ -102,7 +109,7 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
         if not overwrite and blob.exists():
             raise FileExistsError(f"Blob {blob_name} already exists.")
         blob.upload_from_file(stream)
-        url = self._format_url(blob_name)
+        url = self._format_url(blob_name, already_prefixed=True)
         print(f"Uploaded stream to: {url}")
         return url
 
@@ -132,7 +139,7 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
                 resp.raise_for_status()
                 content = await resp.read()
                 blob.upload_from_string(content)
-        url = self._format_url(blob_name)
+        url = self._format_url(blob_name, already_prefixed=True)
         print(f"Copied from {source_url} -> {url}")
         return url
     # ───────────────────────── Download Methods ───────────────────────── #
