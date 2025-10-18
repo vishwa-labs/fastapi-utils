@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, Union, IO, List
 
 import requests
+from google.auth.transport.requests import AuthorizedSession
 from google.cloud import storage
 from google.auth import default as google_auth_default
 from google.oauth2 import service_account
@@ -44,13 +45,37 @@ class GCPStorageClient(StorageClientBase):
     # ----------------------------------------------------------------------
     def _get_storage_client(self) -> storage.Client:
         key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
+
+        # ---- Credential loading (unchanged) ----
         if key_path and Path(key_path).exists():
             print(f"Using service account key from {key_path}")
             creds = service_account.Credentials.from_service_account_file(key_path)
-            return storage.Client(credentials=creds)
-        creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        print("Using Application Default Credentials (ADC) or VM identity.")
-        return storage.Client(credentials=creds)
+        else:
+            creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            print("Using Application Default Credentials (ADC) or VM identity.")
+
+        # ---- NEW: Hardened AuthorizedSession ----
+        authed_session = AuthorizedSession(creds)
+
+        # Prevent stale TLS reuse issues inside long-lived pods
+        authed_session._auth_request.session.headers["Connection"] = "close"
+
+        # Disable HTTP pool reuse (safe under NAT, WireGuard, etc.)
+        adapter = authed_session._auth_request.session.adapters["https://"]
+        adapter.pool_connections = 1
+        adapter.pool_maxsize = 1
+
+        # ---- Pass to storage client ----
+        return storage.Client(credentials=creds, _http=authed_session)
+    # def _get_storage_client(self) -> storage.Client:
+    #     key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
+    #     if key_path and Path(key_path).exists():
+    #         print(f"Using service account key from {key_path}")
+    #         creds = service_account.Credentials.from_service_account_file(key_path)
+    #         return storage.Client(credentials=creds)
+    #     creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    #     print("Using Application Default Credentials (ADC) or VM identity.")
+    #     return storage.Client(credentials=creds)
 
     # ----------------------------------------------------------------------
     # URL Formatting

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional, Union, IO, List
 
 from google.cloud import storage
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import Request, AuthorizedSession
 from google.oauth2 import service_account
 from google.auth import default as google_auth_default
 
@@ -43,14 +43,29 @@ class GCPStorageClientAsync(AsyncStorageClientBase):
 
     # ───────────────────────── Auth ───────────────────────── #
     def _get_client(self) -> storage.Client:
-        key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if key_path and os.path.exists(key_path):
+        key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
+
+        # ---- Credential loading (unchanged) ----
+        if key_path and Path(key_path).exists():
+            print(f"Using service account key from {key_path}")
             creds = service_account.Credentials.from_service_account_file(key_path)
-            creds.refresh(Request())
-            return storage.Client(credentials=creds)
-        creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        print("Using Application Default Credentials (ADC) or VM identity.")
-        return storage.Client(credentials=creds)  # Fallback to ADC
+        else:
+            creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            print("Using Application Default Credentials (ADC) or VM identity.")
+
+        # ---- NEW: Hardened AuthorizedSession ----
+        authed_session = AuthorizedSession(creds)
+
+        # Prevent stale TLS reuse issues inside long-lived pods
+        authed_session._auth_request.session.headers["Connection"] = "close"
+
+        # Disable HTTP pool reuse (safe under NAT, WireGuard, etc.)
+        adapter = authed_session._auth_request.session.adapters["https://"]
+        adapter.pool_connections = 1
+        adapter.pool_maxsize = 1
+
+        # ---- Pass to storage client ----
+        return storage.Client(credentials=creds, _http=authed_session)
 
     # ----------------------------------------------------------------------
     # URL Formatting
