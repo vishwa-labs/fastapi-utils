@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 from typing import Optional, Union, IO, List
 
@@ -19,6 +20,9 @@ class GCPStorageClient(StorageClientBase):
       2. Application Default Credentials (ADC)
       3. VM / GKE / Cloud Run Identity
     """
+
+    _shared_storage_client: Optional[storage.Client] = None
+    _lock = threading.Lock()
 
     def __init__(self,
                  storage_account_name: Optional[str] = None,
@@ -43,40 +47,39 @@ class GCPStorageClient(StorageClientBase):
     # ----------------------------------------------------------------------
     # Auth
     # ----------------------------------------------------------------------
-    def _get_storage_client(self) -> storage.Client:
-        key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
+    @classmethod
+    def _get_storage_client(cls) -> storage.Client:
+        if cls._shared_storage_client is not None:
+            return cls._shared_storage_client
 
-        # ---- Credential loading (unchanged) ----
-        if key_path and Path(key_path).exists():
-            print(f"Using service account key from {key_path}")
-            creds = service_account.Credentials.from_service_account_file(key_path)
-        else:
-            creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-            print("Using Application Default Credentials (ADC) or VM identity.")
+        with cls._lock:
+            if cls._shared_storage_client is not None:
+                return cls._shared_storage_client
 
-        # ---- NEW: Hardened AuthorizedSession ----
-        authed_session = AuthorizedSession(creds)
+            key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
+            project = None
 
-        # Prevent stale TLS reuse issues inside long-lived pods
-        authed_session._auth_request.session.headers["Connection"] = "close"
+            if key_path and Path(key_path).exists():
+                print(f"Using service account key from {key_path}")
+                creds = service_account.Credentials.from_service_account_file(key_path)
+                project = creds.project_id
+            else:
+                creds, project = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+                print("Using Application Default Credentials (ADC) or VM identity.")
 
-        # Disable HTTP pool reuse (safe under NAT, WireGuard, etc.)
-        adapter = authed_session._auth_request.session.adapters["https://"]
-        adapter.pool_connections = 1
-        adapter.pool_maxsize = 1
+            if not project:
+                project = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
 
-        # ---- Pass to storage client ----
-        return storage.Client(credentials=creds, _http=authed_session)
+            authed_session = AuthorizedSession(creds)
+            authed_session._auth_request.session.headers["Connection"] = "close"
+            adapter = authed_session._auth_request.session.adapters["https://"]
+            adapter.pool_connections = 1
+            adapter.pool_maxsize = 1
 
-    # def _get_storage_client(self) -> storage.Client:
-    #     key_path = os.getenv("GCP_SERVICE_ACCOUNT_KEY_PATH")
-    #     if key_path and Path(key_path).exists():
-    #         print(f"Using service account key from {key_path}")
-    #         creds = service_account.Credentials.from_service_account_file(key_path)
-    #         return storage.Client(credentials=creds)
-    #     creds, _ = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    #     print("Using Application Default Credentials (ADC) or VM identity.")
-    #     return storage.Client(credentials=creds)
+            cls._shared_storage_client = storage.Client(
+                credentials=creds, project=project, _http=authed_session,
+            )
+            return cls._shared_storage_client
 
     # ----------------------------------------------------------------------
     # URL Formatting
