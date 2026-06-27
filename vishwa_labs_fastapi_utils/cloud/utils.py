@@ -71,12 +71,12 @@ def parse_cloud_url(url: str):
             "clean_url": decoded,
         }
 
-    # --- AWS S3 ---
-    if "s3.amazonaws.com" in netloc or netloc.endswith(".s3.amazonaws.com"):
-        # https://<bucket>.s3.amazonaws.com/<blob_path>
-        match = re.match(r"^(?P<bucket>[^.]+)\.s3\.amazonaws\.com$", netloc)
-        bucket = match.group("bucket") if match else parsed.netloc.split(".s3")[0]
-        blob = path or None
+    if url.startswith("s3://"):
+        # s3://<bucket>/<blob_path>
+        stripped = url.replace("s3://", "")
+        parts = stripped.split("/", 1)
+        bucket = parts[0]
+        blob = parts[1] if len(parts) > 1 else None
         return {
             "provider": "aws",
             "storage_account_name": bucket,
@@ -85,12 +85,17 @@ def parse_cloud_url(url: str):
             "clean_url": decoded,
         }
 
-    if url.startswith("s3://"):
-        # s3://<bucket>/<blob_path>
-        stripped = url.replace("s3://", "")
-        parts = stripped.split("/", 1)
-        bucket = parts[0]
-        blob = parts[1] if len(parts) > 1 else None
+    # --- AWS S3 (virtual-host or path style, regional or global) ---
+    if ".amazonaws.com" in netloc and "s3" in netloc:
+        if netloc.startswith("s3.") or netloc.startswith("s3-"):
+            # Path style: s3[.<region>].amazonaws.com/<bucket>/<blob_path>
+            parts = path.split("/", 1)
+            bucket = parts[0] if parts and parts[0] else None
+            blob = parts[1] if len(parts) > 1 else None
+        else:
+            # Virtual-host style: <bucket>.s3[.<region>].amazonaws.com/<blob_path>
+            bucket = netloc.split(".s3")[0]
+            blob = path or None
         return {
             "provider": "aws",
             "storage_account_name": bucket,

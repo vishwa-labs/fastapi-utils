@@ -9,6 +9,9 @@ def get_storage_client(storage_provider: Optional[str] = None, **kwargs):
     if provider in ["gcp", "gcs"]:
         from .gcs import GCPStorageClient
         return GCPStorageClient(**kwargs)
+    elif provider in ["aws", "s3"]:
+        from .s3 import S3StorageClient
+        return S3StorageClient(**kwargs)
     else:
         from .az_blob import AzureBlobServiceClient
         return AzureBlobServiceClient(**kwargs)
@@ -27,6 +30,9 @@ async def get_storage_client_async(storage_provider: Optional[str] = None, **kwa
     if provider in ["gcp", "gcs"]:
         from .gcs_async import GCPStorageClientAsync
         return GCPStorageClientAsync(**kwargs)
+    elif provider in ["aws", "s3"]:
+        from .s3_async import S3StorageClientAsync
+        return S3StorageClientAsync(**kwargs)
     elif provider in ["azure", "az"]:
         from .az_blob_async import AzureBlobServiceClientAsync
         return AzureBlobServiceClientAsync(**kwargs)
@@ -54,6 +60,12 @@ def get_reader_client_from_url(url: str):
             storage_account_name=info["storage_account_name"],
             container_name=info["container"],
         )
+    elif provider == "aws":
+        from .s3 import S3StorageClient
+        return S3StorageClient(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
     else:
         raise ValueError(f"Cannot detect valid cloud provider for URL: {url}")
 
@@ -72,6 +84,12 @@ async def get_reader_client_from_url_async(url: str):
     elif provider == "gcp":
         from .gcs_async import GCPStorageClientAsync
         return GCPStorageClientAsync(
+            storage_account_name=info["storage_account_name"],
+            container_name=info["container"],
+        )
+    elif provider == "aws":
+        from .s3_async import S3StorageClientAsync
+        return S3StorageClientAsync(
             storage_account_name=info["storage_account_name"],
             container_name=info["container"],
         )
