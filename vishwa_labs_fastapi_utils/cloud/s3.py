@@ -142,11 +142,18 @@ class S3StorageClient(StorageClientBase):
         local_dir.mkdir(parents=True, exist_ok=True)
         print(f"Downloading folder from s3://{self._bucket_name}/{remote_folder_path}")
 
+        # The SAME prefixing upload_file applies. Without it this listed a prefix nothing
+        # was ever written to: upload_file prefixes the container and this did not, so every
+        # folder read returned zero objects and each caller treated that as a cache miss.
+        # All of them swallow a miss, so the break was silent.
+        prefix = self._prefixed_blob_name(remote_folder_path)
         paginator = self._client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self._bucket_name, Prefix=remote_folder_path):
+        for page in paginator.paginate(Bucket=self._bucket_name, Prefix=prefix):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                local_file = local_dir / Path(key).relative_to(remote_folder_path)
+                if key.endswith("/"):
+                    continue
+                local_file = local_dir / Path(key).relative_to(prefix)
                 local_file.parent.mkdir(parents=True, exist_ok=True)
                 self._client.download_file(self._bucket_name, key, str(local_file))
                 print(f"Downloaded: {key} -> {local_file}")
